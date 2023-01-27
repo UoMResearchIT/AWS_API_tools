@@ -22,10 +22,14 @@ def get_profiles_in_sso(sso_profile_name: str):
     the organisation to loop through.
     """
     config = read_config()
+    if " " in sso_profile_name:
+        sso_profile_name = f"'{sso_profile_name}'"
     if not sso_profile_name.startswith("profile "):
         sso_profile_name = "profile " + sso_profile_name
     profile_names = [name for name in config.sections() if name.startswith("profile")]
     profile_names = [name for name in profile_names if
                      config[name]["sso_session"] == config[sso_profile_name]["sso_session"]]
+    # Remove any quotes from the profile name
+    profile_names = [name.replace("'", "") for name in profile_names]
     # Remove "profile " from the beginning of the name
     return [name.removeprefix("profile ") for name in profile_names]
