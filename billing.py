@@ -50,7 +50,7 @@ def cost_to_csv(account_data: list[dict], cost_data: dict):
                         bill_amount = group["Metrics"]["NetUnblendedCost"]["Amount"]
                         break
                 output_file.write(f"{bill_amount},")
-            output_file.write("\n")
+            output_file.write(f"{'-' * 30}\n")
 
 
 def generate_billing_report(sso_profile_name: str):
