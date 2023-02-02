@@ -1,4 +1,6 @@
 from typing import Type
+import json
+import html
 
 import boto3
 import botocore.client
@@ -6,6 +8,7 @@ import botocore.exceptions
 import tqdm as tqdm
 import jinja2
 import dill
+
 
 from config import get_profiles_in_sso
 
@@ -19,6 +22,8 @@ class NoAccessException(Exception):
 class Policy:
     def __init__(self, name: str):
         self.name: str = name
+        self.aws_managed: bool = False
+        self.text: str = ""
 
 
 class User:
@@ -38,6 +43,18 @@ class Account:
 POLICIES: dict[str: dict[str: Policy]] = {}
 
 
+def populate_policy_details(account_details: dict[str: dict]):
+    for account in POLICIES:
+        account_policies = account_details[account]["Policies"]
+        for policy_name, policy in POLICIES[account].items():
+            if policy_name in account_policies:
+                policy.aws_managed = False
+                text = json.dumps(account_policies[policy_name]["PolicyVersionList"][-1]["Document"], indent=2)
+                policy.text = text.replace("\n", "<br>")
+            else:
+                policy.aws_managed = True
+
+
 def generate_report(sso_profile_name: str, account_details: dict):
 
     accounts = []
@@ -54,6 +71,8 @@ def generate_report(sso_profile_name: str, account_details: dict):
             new_account.users.append(new_user)
         accounts.append(new_account)
 
+    populate_policy_details(account_details)
+
     env = jinja2.Environment(loader=jinja2.PackageLoader("access_audit"), autoescape=jinja2.select_autoescape(),
                              undefined=jinja2.StrictUndefined)
     template = env.get_template("report_template.html")
@@ -61,27 +80,6 @@ def generate_report(sso_profile_name: str, account_details: dict):
 
     with open("iam_report.html", 'w') as output_file:
         output_file.write(report)
-
-        # if account_details is None:
-        #     output_file.write("Access denied when trying to enumerate roles. Check account permissions")
-        # else:
-        #     for username, user_details in account_details["Users"].items():
-        #         attached_policies, group_policies = get_users_policies(user_details, account_details["Groups"])
-        #         attached_policies = [f"{policy} (a)" for policy in attached_policies]
-        #         group_policies = [f"{policy} (g)" for policy in group_policies]
-        #         output_file.write(f"{username} - {', '.join(group_policies)}, {', '.join(attached_policies)}\n")
-        #     output_file.write("\nGroups and attached policies\n\n")
-        #     for group_name, group_details in account_details["Groups"].items():
-        #         group_policy_names = [policy['PolicyName'] for policy in group_details['AttachedManagedPolicies']]
-        #         policy_list.extend(group_policy_names)
-        #         output_file.write(f"{group_name} - {', '.join(group_policy_names)}\n")
-        #     output_file.write("\nPolicy Details\n\n")
-        #     for policy in set(policy_list):
-        #         if policy in account_details["Policies"]:
-        #             output_file.write(f"{policy} - policy document\n")
-        #         else:
-        #             output_file.write(f"{policy} - AWS Managed\n")
-        # output_file.write("\n\n")
 
 
 def get_policy(policy_name: str, account_name: dict[str: Policy]) -> Policy:

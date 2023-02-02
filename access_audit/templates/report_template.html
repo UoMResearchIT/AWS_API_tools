@@ -4,16 +4,21 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
     <meta charset="UTF-8">
     <title>AWS access audit</title>
+    <style>
+        table {
+            line-height: 1.6;
+        }
+    </style>
 </head>
 
 
 <body>
-<div class="container">
+<div class="container-fluid">
     <div class="row my-2">
         <h1>Report on user access for accounts with the same SSO profile as the {{ sso_profile_name }} profile.</h1>
     </div>
     <div class="row my-3">
-        <div class="col-8">
+        <div class="col-7">
             <div class="accordion" id="account_accordian">
                 {% for account in accounts -%}
                     <div class="accordion-item my-2">
@@ -24,21 +29,48 @@
                         </h2>
                         <div id="panelsStayOpen-collapse{{ account.name }}" class="accordion-collapse collapse show" aria-labelledby="panelsStayOpen-heading{{ account.name }}">
                             <div class="accordion-body">
-                                {% for user in account.users -%}
-                                    {{ user.username }}<br>
-                                    &emsp;Groups: {{ user.groups | join(", ") }}<br>
-                                    &emsp;Group policies:
-                                    {% for policy in user.group_policies -%}
-                                        <a class=link data-bs-toggle="collapse" role=button href="#collapse{{ account.name }}{{ policy.name }}">{{ policy.name }}</a>{% if not loop.last %}, {% endif %}
-                                    {%- endfor %}<br>
-
-                                    {% if user.attached_policies -%}
-                                        &emsp;Attached policies:
-                                        {% for policy in user.attached_policies -%}
-                                            <a class=link data-bs-toggle="collapse" role=button href="#collapse{{ account.name }}{{ policy.name }}">{{ policy.name }}</a>{% if not loop.last %}, {% endif %}
-                                        {%- endfor %}<br>
-                                    {%- endif %}
-                                {%- endfor %}
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">Name</th>
+                                            <th scope="col">Groups</th>
+                                            <th scope="col">Group Policies</th>
+                                            <th scope="col">Attached Policies</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for user in account.users -%}
+                                            <tr>
+                                                <td>
+                                                    {{ user.username }}
+                                                </td>
+                                                <td>
+                                                    {% if user.groups -%}
+                                                        {% for group in user.groups -%}
+                                                            {{ group }}{% if not loop.last -%}<br>{%- endif -%}
+                                                        {%- endfor %}
+                                                    {% else %}
+                                                        -
+                                                    {%- endif %}
+                                                </td>
+                                                <td>
+                                                    {% for policy in user.group_policies -%}
+                                                        <a class=link data-bs-toggle="collapse" role=button href="#collapse{{ account.name }}{{ policy.name }}">{{ policy.name }}</a>{% if not loop.last -%}<br>{%- endif %}
+                                                    {%- endfor %}
+                                                </td>
+                                                <td>
+                                                    {% if user.attached_policies -%}
+                                                        {% for policy in user.attached_policies -%}
+                                                            <a class=link data-bs-toggle="collapse" role=button href="#collapse{{ account.name }}{{ policy.name }}">{{ policy.name }}</a>{% if not loop.last -%}<br>{%- endif %}
+                                                        {%- endfor %}
+                                                    {% else -%}
+                                                        -
+                                                    {%- endif %}
+                                                </td>
+                                            </tr>
+                                        {%- endfor %}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
@@ -54,7 +86,9 @@
                             <div class="card card-body">
                                 <h5 class="card-title">Policy <span style="font-weight: bold">{{ policy.name }}</span> for account <span style="font-weight: bold">{{ account.name }}</span></h5>
                                 <div class="card-text">
-                                Some placeholder content for the collapse component.
+                                    AWS Managed: {{ policy.aws_managed }}<br>
+                                    Policy document: <br>
+                                    <pre>{{ policy.text | safe }}</pre>
                                 </div>
                             </div>
                         </div>
