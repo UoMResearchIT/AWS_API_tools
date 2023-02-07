@@ -1,6 +1,6 @@
-from typing import Type
+import pathlib
+from typing import Type, Optional
 import json
-import html
 
 import boto3
 import botocore.client
@@ -12,67 +12,87 @@ import dill
 
 from config import get_profiles_in_sso
 
-OUTPUT_NAME = "iam.txt"
-
 
 class NoAccessException(Exception):
     pass
 
 
 class Policy:
-    def __init__(self, name: str):
-        self.name: str = name
+    def __init__(self, arn: str):
+        self.name: str = ""
+        self.arn: str = arn
         self.aws_managed: bool = False
         self.text: str = ""
 
+    def __repr__(self):
+        return f"{self.arn}"
+
+    def get_managed_policy_details(self, iam_client: Type[botocore.client.BaseClient]):
+        """Details of AWS managed policies are not provided with the get_account_authorization_details API request.
+        A separate API request has to be made to get the details of each AWS managed policy, however, since the details
+         of AWS policies do not change over time, we can cache them."""
+        global POLICY_TEXT_CACHE
+
+        cache_path = pathlib.Path("policy_cache.bin")
+
+        if not POLICY_TEXT_CACHE:
+            if cache_path.exists():
+                with open(cache_path, 'rb') as input_file:
+                    POLICY_TEXT_CACHE = dill.load(input_file)
+        if self.arn not in POLICY_TEXT_CACHE:
+            policy = iam_client.get_policy(PolicyArn=self.arn)["Policy"]
+            self.name = policy["PolicyName"]
+            POLICY_TEXT_CACHE[self.arn] = self.name
+        self.text = POLICY_TEXT_CACHE[self.arn]
+
+        with open(cache_path, 'wb') as output_file:
+            dill.dump(POLICY_TEXT_CACHE, output_file)
+
 
 class User:
-    def __init__(self, username: str):
+    def __init__(self, username: str, account_name: str, account_details: dict):
         self.username: str = username
-        self.groups: list[str] = []
-        self.attached_policies: list[Policy] = []
-        self.group_policies: list[Policy] = []
+
+        user_details = account_details["Users"][self.username]
+        self.groups = user_details["GroupList"]
+        attached_policy_arns = [policy["PolicyArn"] for policy in user_details["AttachedManagedPolicies"]]
+        self.attached_policies = [get_policy(policy_name, account_name) for policy_name in attached_policy_arns]
+        group_policy_arns = get_group_policy_arns(user_details, account_details["Groups"])
+        self.group_policies = [get_policy(policy_arn, account_name) for policy_arn in group_policy_arns]
 
 
 class Account:
-    def __init__(self, name: str):
+    def __init__(self, name: str, account_details: dict):
         self.name: str = name
         self.users: list[User] = []
 
+        for username, user_details in account_details["Users"].items():
+            self.users.append(User(username, self.name, account_details))
+
 
 POLICIES: dict[str: dict[str: Policy]] = {}
+OUTPUT_NAME = "iam.txt"
+POLICY_TEXT_CACHE: dict[str: str] = {}
 
 
-def populate_policy_details(account_details: dict[str: dict]):
-    for account in POLICIES:
-        account_policies = account_details[account]["Policies"]
-        for policy_name, policy in POLICIES[account].items():
-            if policy_name in account_policies:
-                policy.aws_managed = False
-                text = json.dumps(account_policies[policy_name]["PolicyVersionList"][-1]["Document"], indent=2)
-                policy.text = text.replace("\n", "<br>")
-            else:
-                policy.aws_managed = True
+def populate_policy_details(account_details: dict[str: dict], account_name: str,
+                            iam_client: Type[botocore.client.BaseClient]):
+    """On creation, a Policy object only has the ARN. This function populates more details about the policy."""
+
+    account_policies = account_details["Policies"]
+    for policy_arn, policy in POLICIES[account_name].items():
+        if policy_arn in account_policies:
+            policy.aws_managed = False
+            policy.name = account_policies[policy_arn]["PolicyName"]
+            text = json.dumps(account_policies[policy_arn]["PolicyVersionList"][-1]["Document"], indent=2)
+            policy.text = text.replace("\n", "<br>")
+        else:
+            policy.aws_managed = True
+            policy.get_managed_policy_details(iam_client)
 
 
-def generate_report(sso_profile_name: str, account_details: dict):
 
-    accounts = []
-
-    for account_name in account_details:
-        new_account = Account(account_name)
-        for username, user_details in account_details[account_name]["Users"].items():
-            new_user = User(username)
-            new_user.groups = user_details["GroupList"]
-            attached_policy_names = [policy["PolicyName"] for policy in user_details["AttachedManagedPolicies"]]
-            new_user.attached_policies = [get_policy(policy_name, account_name) for policy_name in attached_policy_names]
-            group_policy_names = get_group_policies(user_details, account_details[account_name]["Groups"])
-            new_user.group_policies = [get_policy(policy_name, account_name) for policy_name in group_policy_names]
-            new_account.users.append(new_user)
-        accounts.append(new_account)
-
-    populate_policy_details(account_details)
-
+def generate_report(sso_profile_name: str, accounts):
     env = jinja2.Environment(loader=jinja2.PackageLoader("access_audit"), autoescape=jinja2.select_autoescape(),
                              undefined=jinja2.StrictUndefined)
     template = env.get_template("report_template.html")
@@ -82,20 +102,22 @@ def generate_report(sso_profile_name: str, account_details: dict):
         output_file.write(report)
 
 
-def get_policy(policy_name: str, account_name: dict[str: Policy]) -> Policy:
+def get_policy(policy_arn: str, account_name: dict[str: Policy]) -> Policy:
     """Get a policy from the global dictionary. If a policy is not present, create it and return it."""
     if account_name not in POLICIES:
         POLICIES[account_name] = {}
-    if policy_name not in POLICIES[account_name]:
-        POLICIES[account_name][policy_name] = Policy(policy_name)
-    return POLICIES[account_name][policy_name]
+    if policy_arn not in POLICIES[account_name]:
+        POLICIES[account_name][policy_arn] = Policy(policy_arn)
+    return POLICIES[account_name][policy_arn]
 
 
-def get_group_policies(user_details: dict, group_details: dict) -> list[str]:
-    """Return the policies directly attached to a user and the policies attached to groups the user is in."""
+def get_group_policy_arns(user_details: dict, group_details: dict) -> list[str]:
+    """Return the ARNs of policies directly attached to a user and ARNs of policies attached to
+    groups the user is in.
+    """
     group_policies = []
     for group_name in user_details["GroupList"]:
-        group_policies.extend([policy['PolicyName'] for policy in group_details[group_name]['AttachedManagedPolicies']])
+        group_policies.extend([policy['PolicyArn'] for policy in group_details[group_name]['AttachedManagedPolicies']])
     return group_policies
 
 
@@ -114,40 +136,42 @@ def get_account_details(iam_client: Type[botocore.client.BaseClient]) -> dict[st
     details["Users"] = {user["UserName"]: user for user in details.pop("UserDetailList")}
     details["Groups"] = {group["GroupName"]: group for group in details.pop("GroupDetailList")}
     details["Roles"] = {role["RoleName"]: role for role in details.pop("RoleDetailList")}
-    details["Policies"] = {policy["PolicyName"]: policy for policy in details.pop("Policies")}
+    details["Policies"] = {policy["Arn"]: policy for policy in details.pop("Policies")}
 
     return details
 
 
-def audit_account_access(sso_session: boto3.Session):
+def audit_account_access(sso_session: boto3.Session) -> Optional[Account]:
+    """Audit access for a single account."""
     iam_client = sso_session.client('iam')
     try:
         account_details = get_account_details(iam_client)
     except NoAccessException:
-        account_details = None
-    return account_details
+        return None
+    new_account = Account(sso_session.profile_name, account_details)
+    populate_policy_details(account_details, sso_session.profile_name, iam_client)
+
+    return new_account
 
 
 def save_account_details(account_details: dict):
-    with open("iam.txt", 'wb') as output_file:
+    with open(OUTPUT_NAME, 'wb') as output_file:
         dill.dump(account_details, output_file)
 
 
 def load_account_details():
-    with open("iam.txt", 'rb') as input_file:
+    with open(OUTPUT_NAME, 'rb') as input_file:
         return dill.load(input_file)
 
 
 def audit_all_account_access(sso_profile_name: str):
     """Loop through all the accounts in a single SSO profile, getting IAM information for each one."""
-    # profile_names = get_profiles_in_sso(sso_profile_name)
-    # account_details = {}
-    # for account_name in tqdm.tqdm(profile_names[0:3]):
-    #     session = boto3.Session(profile_name=account_name)
-    #     account_details[account_name] = audit_account_access(session)
-    # save_account_details(account_details)
-    account_details = load_account_details()
-    generate_report(sso_profile_name, account_details)
+    profile_names = get_profiles_in_sso(sso_profile_name)
+    accounts = []
+    for account_name in tqdm.tqdm(profile_names[0:3]):
+        session = boto3.Session(profile_name=account_name)
+        accounts.append(audit_account_access(session))
+    generate_report(sso_profile_name, accounts)
 
 
 if __name__ == "__main__":
