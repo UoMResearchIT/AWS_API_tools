@@ -13,7 +13,7 @@ import dill
 from config import get_profiles_in_sso
 
 OUTPUT_NAME = "iam.txt"
-POLICY_TEXT_CACHE: dict[str: str] = {}
+POLICY_CACHE: dict[str: str] = {}
 
 
 class NoAccessException(Exception):
@@ -23,33 +23,48 @@ class NoAccessException(Exception):
 class Policy:
     def __init__(self, arn: str):
         self.name: str = ""
-        self.arn: str = arn
-        self.aws_managed: bool = False
         self.text: str = ""
+        self.arn: str = arn
+        self.version: str = ""
+        self.description: str = ""
+        if self.arn.startswith("arn:aws:iam::aws:policy"):
+            self.aws_managed = True
+        else:
+            self.aws_managed = False
 
     def __repr__(self):
         return f"{self.arn}"
 
-    # def get_managed_policy_details(self, iam_client: Type[botocore.client.BaseClient]):
-    #     """Details of AWS managed policies are not provided with the get_account_authorization_details API request.
-    #     A separate API request has to be made to get the details of each AWS managed policy, however, since the details
-    #      of AWS policies do not change over time, we can cache them."""
-    #     global POLICY_TEXT_CACHE
-    #
-    #     cache_path = pathlib.Path("policy_cache.bin")
-    #
-    #     if not POLICY_TEXT_CACHE:
-    #         if cache_path.exists():
-    #             with open(cache_path, 'rb') as input_file:
-    #                 POLICY_TEXT_CACHE = dill.load(input_file)
-    #     if self.arn not in POLICY_TEXT_CACHE:
-    #         policy = iam_client.get_policy(PolicyArn=self.arn)["Policy"]
-    #         self.name = policy["PolicyName"]
-    #         POLICY_TEXT_CACHE[self.arn] = self.name
-    #     self.text = POLICY_TEXT_CACHE[self.arn]
-    #
-    #     with open(cache_path, 'wb') as output_file:
-    #         dill.dump(POLICY_TEXT_CACHE, output_file)
+    def get_policy_details(self, iam_client: Type[botocore.client.BaseClient]):
+        """Details of AWS managed policies are not downloaded with the get_account_authorization_details API request,
+         since they are quite large. We can instead download the policies once and cache the information."""
+        global POLICY_CACHE
+
+        cache_path = pathlib.Path("policy_cache.bin")
+
+        if not POLICY_CACHE:
+            if cache_path.exists():
+                with open(cache_path, 'rb') as input_file:
+                    POLICY_CACHE = dill.load(input_file)
+
+        if self.arn not in POLICY_CACHE:
+            policy = iam_client.get_policy(PolicyArn=self.arn)["Policy"]
+            self.name = policy["PolicyName"]
+            self.version = policy["DefaultVersionId"]
+            if "Description" in policy:
+                self.description = policy["Description"]
+            policy_text = iam_client.get_policy_version(PolicyArn=self.arn, VersionId=self.version)
+            self.text = json.dumps(policy_text["PolicyVersion"]["Document"], indent=2).replace("\n", "<br>")
+            POLICY_CACHE[self.arn] = self
+
+            with open(cache_path, 'wb') as output_file:
+                dill.dump(POLICY_CACHE, output_file)
+
+        else:
+            self.name = POLICY_CACHE[self.arn].name
+            self.version = POLICY_CACHE[self.arn].version
+            self.description = POLICY_CACHE[self.arn].description
+            self.text = POLICY_CACHE[self.arn].text
 
 
 class User:
@@ -78,20 +93,6 @@ class Account:
                                       policy_name in user.attached_policy_arns]
             user.group_policies = [get_policy(policy_arn, self.policies) for
                                    policy_arn in user.group_policy_arns]
-
-        for policy_name, policy in self.policies.items():
-            populate_policy_details(policy, account_details["Policies"])
-
-
-def populate_policy_details(policy: Policy, policy_details: dict):
-    """On creation, a Policy object only has the ARN. This function populates more details about the policy."""
-    if policy.arn.startswith("arn:aws:iam::aws:policy"):
-        policy.aws_managed = True
-    else:
-        policy.aws_managed = False
-    policy.name = policy_details[policy.arn]["PolicyName"]
-    text = json.dumps(policy_details[policy.arn]["PolicyVersionList"][-1]["Document"], indent=2)
-    policy.text = text.replace("\n", "<br>")
 
 
 def generate_report(sso_profile_name: str, accounts: list[Account]):
@@ -122,10 +123,10 @@ def get_group_policy_arns(user_details: dict, group_details: dict) -> list[str]:
 
 
 def get_account_details(iam_client: Type[botocore.client.BaseClient]) -> dict[str: dict]:
-    details = {"UserDetailList": [], "GroupDetailList": [], "RoleDetailList": [], "Policies": []}
+    details = {"UserDetailList": [], "GroupDetailList": [], "RoleDetailList": []}
     # noinspection PyArgumentList
     paginator = iam_client.get_paginator('get_account_authorization_details')
-    page_iterator = paginator.paginate()
+    page_iterator = paginator.paginate(Filter=['User', 'Role', 'Group'])
     try:
         for page in page_iterator:
             for item in details:
@@ -136,7 +137,6 @@ def get_account_details(iam_client: Type[botocore.client.BaseClient]) -> dict[st
     details["Users"] = {user["UserName"]: user for user in details.pop("UserDetailList")}
     details["Groups"] = {group["GroupName"]: group for group in details.pop("GroupDetailList")}
     details["Roles"] = {role["RoleName"]: role for role in details.pop("RoleDetailList")}
-    details["Policies"] = {policy["Arn"]: policy for policy in details.pop("Policies")}
 
     return details
 
@@ -149,6 +149,9 @@ def audit_account_access(sso_session: boto3.Session) -> Optional[Account]:
     except NoAccessException:
         return None
     new_account = Account(sso_session.profile_name, account_details)
+
+    for policy_name, policy in new_account.policies.items():
+        policy.get_policy_details(iam_client)
 
     return new_account
 
