@@ -81,7 +81,7 @@
             <div class="position-fixed">
                 Policy Details:
                 {% for account in accounts -%}
-                    {% for policy_name, policy in policies[account.name].items() -%}
+                    {% for policy_name, policy in account["policies"].items() -%}
                         <div class="collapse" data-bs-parent="#policy_details_column" id="collapse{{ account.name }}{{ policy.name }}">
                             <div class="card card-body">
                                 <h5 class="card-title">Policy <span style="font-weight: bold">{{ policy.name }}</span> for account <span style="font-weight: bold">{{ account.name }}</span></h5>
