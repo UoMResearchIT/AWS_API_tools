@@ -10,8 +10,9 @@ import jinja2
 import dill
 import tqdm
 
-from sso import audit_sso_access, Group
+from sso import audit_sso_access, Assignment, AccessInformation
 from config import get_profiles_in_sso
+
 
 OUTPUT_NAME = "iam.txt"
 POLICY_CACHE: dict[str: str] = {}
@@ -86,6 +87,7 @@ class Account:
         self.id: str = account_id
         self.iam_users: list[IAMUser] = []
         self.policies = {}
+        self.assignments: list[Assignment] = []
 
         for username, user_details in account_details["Users"].items():
             self.iam_users.append(IAMUser(username, account_details))
@@ -97,11 +99,11 @@ class Account:
                                    policy_arn in user.group_policy_arns]
 
 
-def generate_report(sso_profile_name: str, accounts: list[Account], sso_groups: list[Group]):
+def generate_report(sso_profile_name: str, access_info: AccessInformation):
     env = jinja2.Environment(loader=jinja2.PackageLoader("access_audit"), autoescape=jinja2.select_autoescape(),
                              undefined=jinja2.StrictUndefined)
     template = env.get_template("report_template.html")
-    report = template.render(sso_profile_name=sso_profile_name, accounts=accounts, sso_groups=sso_groups)
+    report = template.render(sso_profile_name=sso_profile_name, access_info=access_info)
 
     with open("iam_report.html", 'w') as output_file:
         output_file.write(report)
@@ -182,8 +184,8 @@ def audit_access(sso_profile_name: str, debug=False):
         save_account_details(accounts)
     accounts = load_account_details()
     session = boto3.Session(profile_name=sso_profile_name)
-    sso_groups = audit_sso_access(session, accounts)
-    generate_report(sso_profile_name, accounts, sso_groups)
+    account_info = audit_sso_access(session, accounts)
+    generate_report(sso_profile_name, account_info)
 
 
 if __name__ == "__main__":
