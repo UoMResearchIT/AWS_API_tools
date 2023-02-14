@@ -5,11 +5,12 @@ import json
 import boto3
 import botocore.client
 import botocore.exceptions
-import tqdm as tqdm
+import botocore.errorfactory
 import jinja2
 import dill
+import tqdm
 
-
+from sso import audit_sso_access, Group
 from config import get_profiles_in_sso
 
 OUTPUT_NAME = "iam.txt"
@@ -67,7 +68,7 @@ class Policy:
             self.text = POLICY_CACHE[self.arn].text
 
 
-class User:
+class IAMUser:
     def __init__(self, username: str, account_details: dict):
         self.username: str = username
 
@@ -80,26 +81,27 @@ class User:
 
 
 class Account:
-    def __init__(self, name: str, account_details: dict):
+    def __init__(self, name: str, account_id: str, account_details: dict):
         self.name: str = name
-        self.users: list[User] = []
+        self.id: str = account_id
+        self.iam_users: list[IAMUser] = []
         self.policies = {}
 
         for username, user_details in account_details["Users"].items():
-            self.users.append(User(username, account_details))
+            self.iam_users.append(IAMUser(username, account_details))
 
-        for user in self.users:
+        for user in self.iam_users:
             user.attached_policies = [get_policy(policy_name, self.policies) for
                                       policy_name in user.attached_policy_arns]
             user.group_policies = [get_policy(policy_arn, self.policies) for
                                    policy_arn in user.group_policy_arns]
 
 
-def generate_report(sso_profile_name: str, accounts: list[Account]):
+def generate_report(sso_profile_name: str, accounts: list[Account], sso_groups: list[Group]):
     env = jinja2.Environment(loader=jinja2.PackageLoader("access_audit"), autoescape=jinja2.select_autoescape(),
                              undefined=jinja2.StrictUndefined)
     template = env.get_template("report_template.html")
-    report = template.render(sso_profile_name=sso_profile_name, accounts=accounts)
+    report = template.render(sso_profile_name=sso_profile_name, accounts=accounts, sso_groups=sso_groups)
 
     with open("iam_report.html", 'w') as output_file:
         output_file.write(report)
@@ -141,14 +143,15 @@ def get_account_details(iam_client: Type[botocore.client.BaseClient]) -> dict[st
     return details
 
 
-def audit_account_access(sso_session: boto3.Session) -> Optional[Account]:
-    """Audit access for a single account."""
+def audit_account_iam(sso_session: boto3.Session) -> Optional[Account]:
+    """Get information about IAM identities for a single AWS account."""
     iam_client = sso_session.client('iam')
     try:
         account_details = get_account_details(iam_client)
     except NoAccessException:
         return None
-    new_account = Account(sso_session.profile_name, account_details)
+    account_id = sso_session.client('sts').get_caller_identity()["Account"]
+    new_account = Account(sso_session.profile_name, account_id, account_details)
 
     for policy_name, policy in new_account.policies.items():
         policy.get_policy_details(iam_client)
@@ -156,9 +159,9 @@ def audit_account_access(sso_session: boto3.Session) -> Optional[Account]:
     return new_account
 
 
-def save_account_details(account_details: dict):
+def save_account_details(accounts: list[Account]):
     with open(OUTPUT_NAME, 'wb') as output_file:
-        dill.dump(account_details, output_file)
+        dill.dump(accounts, output_file)
 
 
 def load_account_details():
@@ -166,16 +169,22 @@ def load_account_details():
         return dill.load(input_file)
 
 
-def audit_all_account_access(sso_profile_name: str):
-    """Loop through all the accounts in a single SSO profile, getting IAM information for each one."""
-    profile_names = get_profiles_in_sso(sso_profile_name)
-    accounts = []
-    for account_name in tqdm.tqdm(profile_names[0:3]):
-        session = boto3.Session(profile_name=account_name)
-        account = audit_account_access(session)
-        accounts.append(account)
-    generate_report(sso_profile_name, accounts)
+def audit_access(sso_profile_name: str, debug=False):
+    """Loop through all the accounts in a single SSO profile, getting user and access information for each one."""
+    if not debug:
+        profile_names = get_profiles_in_sso(sso_profile_name)
+        accounts = []
+        for account_name in tqdm.tqdm(profile_names[0:3]):
+            # IAM is global so don't need to specify region.
+            session = boto3.Session(profile_name=account_name)
+            account = audit_account_iam(session)
+            accounts.append(account)
+        save_account_details(accounts)
+    accounts = load_account_details()
+    session = boto3.Session(profile_name=sso_profile_name)
+    sso_groups = audit_sso_access(session, accounts)
+    generate_report(sso_profile_name, accounts, sso_groups)
 
 
 if __name__ == "__main__":
-    audit_all_account_access("old-organisation")
+    audit_access("old-organisation", True)

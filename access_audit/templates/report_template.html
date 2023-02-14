@@ -8,6 +8,11 @@
         table {
             line-height: 1.6;
         }
+        .scroll {
+            max-height: 80%;
+            overflow-y: auto;
+            scrollbar-gutter: stable;
+            }
     </style>
 </head>
 
@@ -17,17 +22,68 @@
     <div class="row my-2">
         <h1>Report on user access for accounts with the same SSO profile as the {{ sso_profile_name }} profile.</h1>
     </div>
-    <div class="row my-3">
+    <ul class="nav nav-tabs" id="myTabList" role="tablist">
+        <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="sso-tab" data-bs-toggle="tab" data-bs-target="#sso" type="button" role="tab">SSO</button>
+        </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="iam-tab" data-bs-toggle="tab" data-bs-target="#iam" type="button" role="tab">IAM</button>
+        </li>
+    </ul>
+    <div class="tab-content" id="myTabContent">
+        <div class="tab-pane fade show active" id="sso" role="tabpanel">
+            <div class="accordion" id="sso_accordian">
+                <div class="accordion-item my-2">
+                    <h2 class="accordion-header" id="panelsStayOpen-heading-groups">
+                        <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#panelsStayOpen-collapse-groups">
+                            Groups
+                        </button>
+                    </h2>
+                    <div id="panelsStayOpen-collapse-groups" class="accordion-collapse collapse show">
+                        <div class="accordion-body">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Group Name</th>
+                                        <th scope="col">Members</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for group in sso_groups -%}
+                                        <tr>
+                                            <td>
+                                                {{ group.name }}
+                                            </td>
+                                            <td>
+                                                {% if group.members -%}
+                                                    {% for member in group.members -%}
+                                                        {{ member.name }}{% if not loop.last -%}<br>{%- endif -%}
+                                                    {%- endfor %}
+                                                {% else %}
+                                                    -
+                                                {%- endif %}
+                                            </td>
+                                        </tr>
+                                    {%- endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="tab-pane fade" id="iam" role="tabpanel">
+            <div class="row my-3">
         <div class="col-7">
             <div class="accordion" id="account_accordian">
                 {% for account in accounts -%}
                     <div class="accordion-item my-2">
                         <h2 class="accordion-header" id="panelsStayOpen-heading{{ account.name }}">
-                            <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#panelsStayOpen-collapse{{ account.name }}" aria-expanded="true" aria-controls="panelsStayOpen-collapse{{ account.name }}">
+                            <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#panelsStayOpen-collapse{{ account.name }}">
                                 {{account.name}}
                             </button>
                         </h2>
-                        <div id="panelsStayOpen-collapse{{ account.name }}" class="accordion-collapse collapse show" aria-labelledby="panelsStayOpen-heading{{ account.name }}">
+                        <div id="panelsStayOpen-collapse{{ account.name }}" class="accordion-collapse collapse show">
                             <div class="accordion-body">
                                 <table class="table">
                                     <thead>
@@ -55,13 +111,13 @@
                                                 </td>
                                                 <td>
                                                     {% for policy in user.group_policies -%}
-                                                        <a class=link data-bs-toggle="collapse" role=button href="#collapse{{ account.name }}{{ policy.name }}">{{ policy.name }}</a>{% if not loop.last -%}<br>{%- endif %}
+                                                        <a class=link data-bs-toggle="collapse" role=button href="#collapse-{{ account.name }}-{{ policy.name }}">{{ policy.name }}</a>{% if not loop.last -%}<br>{%- endif %}
                                                     {%- endfor %}
                                                 </td>
                                                 <td>
                                                     {% if user.attached_policies -%}
                                                         {% for policy in user.attached_policies -%}
-                                                            <a class=link data-bs-toggle="collapse" role=button href="#collapse{{ account.name }}{{ policy.name }}">{{ policy.name }}</a>{% if not loop.last -%}<br>{%- endif %}
+                                                            <a class=link data-bs-toggle="collapse" role=button href="#collapse-{{ account.name }}-{{ policy.name }}">{{ policy.name }}</a>{% if not loop.last -%}<br>{%- endif %}
                                                         {%- endfor %}
                                                     {% else -%}
                                                         -
@@ -77,12 +133,12 @@
                 {%- endfor %}
             </div>
         </div>
-        <div class="col" id="policy_details_column">
-            <div class="position-fixed">
+        <div class="col-5" id="policy_details_column">
+            <div class="position-fixed scroll">
                 Policy Details:
                 {% for account in accounts -%}
                     {% for policy_name, policy in account["policies"].items() -%}
-                        <div class="collapse" data-bs-parent="#policy_details_column" id="collapse{{ account.name }}{{ policy.name }}">
+                        <div class="collapse" data-bs-parent="#policy_details_column" id="collapse-{{ account.name }}-{{ policy.name }}">
                             <div class="card card-body">
                                 <h5 class="card-title">Policy <span style="font-weight: bold">{{ policy.name }}</span> for account <span style="font-weight: bold">{{ account.name }}</span></h5>
                                 <div class="card-text">
@@ -95,6 +151,8 @@
                     {%- endfor %}
                 {%- endfor %}
             </div>
+        </div>
+    </div>
         </div>
     </div>
 </div>
