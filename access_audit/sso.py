@@ -10,7 +10,8 @@ if TYPE_CHECKING:
 
 
 class AccessInformation:
-    def __init__(self, accounts: list[Account]):
+    def __init__(self, profile_name: str, accounts: list[Account]):
+        self.profile_name: str = profile_name
         self.accounts: list[Account] = accounts
         self.permission_sets = dict[str: PermissionSet]
         self.groups = dict[str: Group]
@@ -24,7 +25,7 @@ class PermissionSet:
         self.managed_policies = []
         self.customer_policies = []
         self.inline_policy = ""
-        self.permission_sets: list[PermissionSet] = []
+        self.assignments: list[Assignment] = []
 
     def __repr__(self):
         return f"{self.arn}"
@@ -84,18 +85,23 @@ def get_permission_set(instance_arn: str, set_arn: str, sso_client: Type[botocor
 
 def audit_sso_access(session: boto3.session, accounts: list[Account]) -> AccessInformation:
     """Get information about IAM Identity Center identities for a master AWS account."""
+    print("Beginning SSO analysis.")
     region_name = "eu-west-2"
     sso_client = session.client("sso-admin", region_name=region_name)
     identity_client = session.client("identitystore", region_name=region_name)
-    access_info = AccessInformation(accounts)
+    access_info = AccessInformation(session.profile_name, accounts)
 
     identity_store_id, instance_arn = get_instance_info(region_name, sso_client)
 
     access_info.permission_sets = get_permission_sets(instance_arn, sso_client)
+    print("Collected permission set info.")
     access_info.users = get_sso_users(identity_client, identity_store_id)
+    print("Collected user info.")
     access_info.groups = get_sso_groups(identity_client, identity_store_id, access_info.users)
+    print("Collected group info.")
 
     get_assignments(instance_arn, sso_client, access_info)
+    print("Collected assignment info.")
 
     return access_info
 
@@ -113,12 +119,16 @@ def get_assignments(instance_arn: str, sso_client: Type[botocore.client.BaseClie
                 "AccountAssignments"]
             new_assignment = Assignment(access_info.permission_sets[permission_set_arn], account)
             for assignment in account_assignments:
-                if assignment["PrincipleType"] == "GROUP":
-                    new_assignment.members.append(access_info.groups["PrincipleID"])
-                    access_info.groups["PrincipleID"].assignments.append(new_assignment)
-                else:
-                    new_assignment.members.append(access_info.users["PrincipleID"])
-                    access_info.users["PrincipleID"].assignments.append(new_assignment)
+                principal_id = assignment["PrincipalId"]
+                if assignment["PrincipalType"] == "GROUP":
+                    new_assignment.members.append(access_info.groups[principal_id])
+                    access_info.groups[principal_id].assignments.append(new_assignment)
+                elif assignment["PrincipalType"] == "USER":
+                    if principal_id not in access_info.users:
+                        access_info.users[principal_id] = (SSOUser("Unknown", "Unknown", principal_id))
+                    new_assignment.members.append(access_info.users[principal_id])
+                    access_info.users[principal_id].assignments.append(new_assignment)
+
             access_info.permission_sets[permission_set_arn].assignments.append(new_assignment)
             account.assignments.append(new_assignment)
 

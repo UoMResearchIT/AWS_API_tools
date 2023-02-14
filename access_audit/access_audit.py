@@ -183,6 +183,8 @@ def audit_access(sso_profile_name: str, debug=False):
             accounts.append(account)
         save_account_details(accounts)
     accounts = load_account_details()
+    print("Completed iam analysis.")
+
     session = boto3.Session(profile_name=sso_profile_name)
     account_info = audit_sso_access(session, accounts)
     generate_report(sso_profile_name, account_info)
