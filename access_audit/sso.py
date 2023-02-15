@@ -13,9 +13,10 @@ class AccessInformation:
     def __init__(self, profile_name: str, accounts: list[Account]):
         self.profile_name: str = profile_name
         self.accounts: list[Account] = accounts
-        self.permission_sets = dict[str: PermissionSet]
-        self.groups = dict[str: Group]
-        self.users = dict[str: SSOUser]
+        self.permission_sets: dict[str: PermissionSet] = {}
+        self.groups: dict[str: Group] = {}
+        self.users: dict[str: SSOUser] = {}
+        self.views: dict[str: dict] = {}
 
 
 class PermissionSet:
@@ -29,6 +30,9 @@ class PermissionSet:
 
     def __repr__(self):
         return f"{self.arn}"
+
+    def __hash__(self):
+        return hash(self.arn)
 
 
 class Assignment:
@@ -48,6 +52,9 @@ class Group:
     def __repr__(self):
         return f"Group: {self.name}"
 
+    def __hash__(self):
+        return hash(self.id)
+
 
 class SSOUser:
     def __init__(self, username: str, name: str, user_id: str):
@@ -56,9 +63,13 @@ class SSOUser:
         self.id: str = user_id
         self.groups: list[Group] = []
         self.assignments: list[Assignment] = []
+        self.num_permission_sets: int = 0
 
     def __repr__(self):
         return f"SSOUser: {self.name}"
+
+    def __hash__(self):
+        return hash(self.id)
 
 
 def get_permission_set(instance_arn: str, set_arn: str, sso_client: Type[botocore.client.BaseClient]) -> PermissionSet:

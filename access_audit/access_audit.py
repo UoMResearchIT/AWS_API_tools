@@ -161,7 +161,7 @@ def audit_account_iam(sso_session: boto3.Session) -> Optional[Account]:
     return new_account
 
 
-def save_account_details(accounts: list[Account]):
+def save_account_details(accounts: AccessInformation):
     with open(OUTPUT_NAME, 'wb') as output_file:
         dill.dump(accounts, output_file)
 
@@ -169,6 +169,23 @@ def save_account_details(accounts: list[Account]):
 def load_account_details():
     with open(OUTPUT_NAME, 'rb') as input_file:
         return dill.load(input_file)
+
+
+def sort_report_data(access_information: AccessInformation) -> AccessInformation:
+    """Create some new views of the collected information for reporting purposes."""
+    user_view = {}
+    for user_name, user in access_information.users.items():
+        for account in access_information.accounts:
+            for assignment in account.assignments:
+                if assignment.members[0] == user:
+                    if user not in user_view:
+                        user_view[user] = {}
+                    if account not in user_view[user]:
+                        user_view[user][account] = []
+                    user_view[user][account].append(assignment.permission_set)
+                    user.num_permission_sets += 1
+    access_information.views["user_view"] = user_view
+    return access_information
 
 
 def audit_access(sso_profile_name: str, debug=False):
@@ -181,12 +198,14 @@ def audit_access(sso_profile_name: str, debug=False):
             session = boto3.Session(profile_name=account_name)
             account = audit_account_iam(session)
             accounts.append(account)
-        save_account_details(accounts)
-    accounts = load_account_details()
-    print("Completed iam analysis.")
+        print("Completed iam analysis.")
 
-    session = boto3.Session(profile_name=sso_profile_name)
-    account_info = audit_sso_access(session, accounts)
+        session = boto3.Session(profile_name=sso_profile_name)
+        account_info = audit_sso_access(session, accounts)
+        account_info = sort_report_data(account_info)
+        save_account_details(account_info)
+
+    account_info = load_account_details()
     generate_report(sso_profile_name, account_info)
 
 

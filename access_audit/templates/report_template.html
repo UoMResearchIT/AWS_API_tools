@@ -36,7 +36,7 @@
                 <div class="accordion-item my-2">
                     <h2 class="accordion-header" id="panelsStayOpen-heading-groups">
                         <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#panelsStayOpen-collapse-groups">
-                            Groups
+                            Group / Member
                         </button>
                     </h2>
                     <div id="panelsStayOpen-collapse-groups" class="accordion-collapse collapse show">
@@ -64,6 +64,51 @@
                                                 {%- endif %}
                                             </td>
                                         </tr>
+                                    {%- endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <div class="accordion-item my-2">
+                    <h2 class="accordion-header" id="panelsStayOpen-heading-users">
+                        <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#panelsStayOpen-collapse-users">
+                            User / Account / Permission Set
+                        </button>
+                    </h2>
+                    <div id="panelsStayOpen-collapse-users" class="accordion-collapse collapse show">
+                        <div class="accordion-body">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">User</th>
+                                        <th scope="col">Account</th>
+                                        <th scope="col">Permission Set</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for user, accounts in access_info.views.user_view.items() -%}
+                                        {% for account, permissions in accounts.items() -%}
+                                            {%  set acc = namespace(printed=0) %}
+                                            {%  for permission in permissions %}
+                                                <tr>
+                                                    {% if acc.printed == 0 -%}
+                                                        <td rowspan="{{ user.num_permission_sets }}">
+                                                            {{ user.username }} ({{ user.name }})
+                                                        </td>
+                                                        {% set acc.printed = 1 %}
+                                                    {% endif -%}
+                                                    {% if loop.first %}
+                                                        <td rowspan="{{ loop.length }}">
+                                                            {{ account.name }}
+                                                        </td>
+                                                    {% endif -%}
+                                                    <td>
+                                                        {{ permission.name }}
+                                                    </td>
+                                                </tr>
+                                            {%- endfor %}
+                                        {%- endfor %}
                                     {%- endfor %}
                                 </tbody>
                             </table>
