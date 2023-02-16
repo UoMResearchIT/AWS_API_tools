@@ -88,6 +88,7 @@ class Account:
         self.iam_users: list[IAMUser] = []
         self.policies = {}
         self.assignments: list[Assignment] = []
+        self.num_permission_sets: int = 0
 
         for username, user_details in account_details["Users"].items():
             self.iam_users.append(IAMUser(username, account_details))
@@ -174,6 +175,7 @@ def load_account_details():
 def sort_report_data(access_information: AccessInformation) -> AccessInformation:
     """Create some new views of the collected information for reporting purposes."""
     user_view = {}
+    account_view = {}
     for user_name, user in access_information.users.items():
         for account in access_information.accounts:
             for assignment in account.assignments:
@@ -184,7 +186,16 @@ def sort_report_data(access_information: AccessInformation) -> AccessInformation
                         user_view[user][account] = []
                     user_view[user][account].append(assignment.permission_set)
                     user.num_permission_sets += 1
+
+                    if account not in account_view:
+                        account_view[account] = {}
+                    if user not in account_view[account]:
+                        account_view[account][user] = []
+                    account_view[account][user].append(assignment.permission_set)
+                    account.num_permission_sets += 1
     access_information.views["user_view"] = user_view
+    access_information.views["account_view"] = account_view
+
     return access_information
 
 
@@ -210,4 +221,4 @@ def audit_access(sso_profile_name: str, debug=False):
 
 
 if __name__ == "__main__":
-    audit_access("old-organisation", True)
+    audit_access("old-organisation", False)
