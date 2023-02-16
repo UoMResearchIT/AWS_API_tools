@@ -6,7 +6,11 @@ import botocore.client
 import botocore.errorfactory
 
 if TYPE_CHECKING:
-    from access_audit.access_audit import Account, NoAccessException
+    from access_audit.iam import Account
+
+
+class NoAccessException(Exception):
+    pass
 
 
 class AccessInformation:
