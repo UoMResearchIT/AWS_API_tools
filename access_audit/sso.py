@@ -213,3 +213,30 @@ def get_sso_groups(identity_client: Type[botocore.client.BaseClient], identity_s
             users[membership["MemberId"]["UserId"]].groups.append(group)
 
     return groups
+
+
+def sort_report_data(access_information: AccessInformation) -> AccessInformation:
+    """Create some new views of the collected information for reporting purposes."""
+    user_view = {}
+    account_view = {}
+    for user_name, user in access_information.users.items():
+        for account in access_information.accounts:
+            for assignment in account.assignments:
+                if assignment.members[0] == user:
+                    if user not in user_view:
+                        user_view[user] = {}
+                    if account not in user_view[user]:
+                        user_view[user][account] = []
+                    user_view[user][account].append(assignment.permission_set)
+                    user.num_permission_sets += 1
+
+                    if account not in account_view:
+                        account_view[account] = {}
+                    if user not in account_view[account]:
+                        account_view[account][user] = []
+                    account_view[account][user].append(assignment.permission_set)
+                    account.num_permission_sets += 1
+    access_information.views["user_view"] = user_view
+    access_information.views["account_view"] = account_view
+
+    return access_information

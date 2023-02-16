@@ -5,3 +5,4 @@
 __pycache__/
 /iam_report.html
 /policy_cache.bin
+/debug.bin

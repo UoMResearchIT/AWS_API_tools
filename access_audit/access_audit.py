@@ -1,5 +1,6 @@
+from __future__ import annotations
 import pathlib
-from typing import Type, Optional
+from typing import Type, Optional, TYPE_CHECKING
 import json
 
 import boto3
@@ -10,12 +11,14 @@ import jinja2
 import dill
 import tqdm
 
-from sso import audit_sso_access, Assignment, AccessInformation
+from sso import audit_sso_access, sort_report_data
 from config import get_profiles_in_sso
 
+if TYPE_CHECKING:
+    from sso import Group, Assignment, AccessInformation
 
-OUTPUT_NAME = "iam.txt"
-POLICY_CACHE: dict[str: str] = {}
+OUTPUT_NAME = "debug.bin"
+POLICY_WORDING_CACHE: dict[str: str] = {}
 
 
 class NoAccessException(Exception):
@@ -23,6 +26,15 @@ class NoAccessException(Exception):
 
 
 class Policy:
+    """A Policy is an IAM object which can be attached to an identity to control what access it has to resources.
+
+    :ivar name: The friendly name of the policy
+    :ivar text: The wording of the policy.
+    :ivar arn: The Amazon Resource Name of the policy.
+    :ivar version: The version of the policy.
+    :ivar description: A textual description of the policy.
+    :ivar aws_managed: Whether the policy is a standard AWS provided one, or a custom one.
+    """
     def __init__(self, arn: str):
         self.name: str = ""
         self.text: str = ""
@@ -38,18 +50,21 @@ class Policy:
         return f"{self.arn}"
 
     def get_policy_details(self, iam_client: Type[botocore.client.BaseClient]):
-        """Details of AWS managed policies are not downloaded with the get_account_authorization_details API request,
-         since they are quite large. We can instead download the policies once and cache the information."""
-        global POLICY_CACHE
+        """Get details for the policy.
+
+        Policy details are not downloaded with the get_account_authorization_details API request,
+        since there is a lot of duplication. Policy wording is instead downloaded once for each policy once and cached.
+        """
+        global POLICY_WORDING_CACHE
 
         cache_path = pathlib.Path("policy_cache.bin")
 
-        if not POLICY_CACHE:
+        if not POLICY_WORDING_CACHE:
             if cache_path.exists():
                 with open(cache_path, 'rb') as input_file:
-                    POLICY_CACHE = dill.load(input_file)
+                    POLICY_WORDING_CACHE = dill.load(input_file)
 
-        if self.arn not in POLICY_CACHE:
+        if self.arn not in POLICY_WORDING_CACHE:
             policy = iam_client.get_policy(PolicyArn=self.arn)["Policy"]
             self.name = policy["PolicyName"]
             self.version = policy["DefaultVersionId"]
@@ -57,47 +72,58 @@ class Policy:
                 self.description = policy["Description"]
             policy_text = iam_client.get_policy_version(PolicyArn=self.arn, VersionId=self.version)
             self.text = json.dumps(policy_text["PolicyVersion"]["Document"], indent=2).replace("\n", "<br>")
-            POLICY_CACHE[self.arn] = self
+            POLICY_WORDING_CACHE[self.arn] = self
 
             with open(cache_path, 'wb') as output_file:
-                dill.dump(POLICY_CACHE, output_file)
+                dill.dump(POLICY_WORDING_CACHE, output_file)
 
         else:
-            self.name = POLICY_CACHE[self.arn].name
-            self.version = POLICY_CACHE[self.arn].version
-            self.description = POLICY_CACHE[self.arn].description
-            self.text = POLICY_CACHE[self.arn].text
+            self.name = POLICY_WORDING_CACHE[self.arn].name
+            self.version = POLICY_WORDING_CACHE[self.arn].version
+            self.description = POLICY_WORDING_CACHE[self.arn].description
+            self.text = POLICY_WORDING_CACHE[self.arn].text
 
 
 class IAMUser:
-    def __init__(self, username: str, account_details: dict):
+    """An object describing an IAM user.
+
+    :ivar groups: A list of `Group`s that a user is a member of.
+    :ivar attached_policies: A list of `Policy` objects representing policies directly attached to the user.
+    :ivar group_policies: A list of `Policy` objects representing policies that apply to the user as a result of group
+      membership.
+    """
+    def __init__(self, username: str, account_details: dict, policy_cache: dict[str: Policy]):
         self.username: str = username
 
         user_details = account_details["Users"][self.username]
-        self.groups = user_details["GroupList"]
-        self.attached_policy_arns = [policy["PolicyArn"] for policy in user_details["AttachedManagedPolicies"]]
-        self.group_policy_arns = get_group_policy_arns(user_details, account_details["Groups"])
-        self.attached_polices: list[Policy] = []
-        self.group_policies: list[Policy] = []
+        self.groups: list[Group] = user_details["GroupList"]
+
+        attached_policy_arns: list[str] = [policy["PolicyArn"] for policy in user_details["AttachedManagedPolicies"]]
+        group_policy_arns: list[str] = get_group_policy_arns(user_details, account_details["Groups"])
+
+        self.attached_policies: list[Policy] = [get_policy(arn, policy_cache) for arn in attached_policy_arns]
+        self.group_policies: list[Policy] = [get_policy(arn, policy_cache) for arn in group_policy_arns]
 
 
 class Account:
+    """An object representing an AWS account.
+
+    :ivar name: The friendly name of the Account.
+    :ivar id: The numerical account ID.
+    :ivar iam_users: A list of `IAMUser`s within the account.
+    :ivar policies: A list of `Policy` that are assigned to identities in the account.
+    :ivar assignments: A list of `assignments` which list which identities policies are applied to.
+    :ivar num_permission_sets: A count of the total number of SSO permission sets in the account.
+    """
     def __init__(self, name: str, account_id: str, account_details: dict):
         self.name: str = name
         self.id: str = account_id
         self.iam_users: list[IAMUser] = []
-        self.policies = {}
+        self.policies: dict[str: Policy] = {}
         self.assignments: list[Assignment] = []
         self.num_permission_sets: int = 0
 
-        for username, user_details in account_details["Users"].items():
-            self.iam_users.append(IAMUser(username, account_details))
-
-        for user in self.iam_users:
-            user.attached_policies = [get_policy(policy_name, self.policies) for
-                                      policy_name in user.attached_policy_arns]
-            user.group_policies = [get_policy(policy_arn, self.policies) for
-                                   policy_arn in user.group_policy_arns]
+        self.iam_users = [(IAMUser(username, account_details, self.policies)) for username in account_details["Users"]]
 
 
 def generate_report(sso_profile_name: str, access_info: AccessInformation):
@@ -170,33 +196,6 @@ def save_account_details(accounts: AccessInformation):
 def load_account_details():
     with open(OUTPUT_NAME, 'rb') as input_file:
         return dill.load(input_file)
-
-
-def sort_report_data(access_information: AccessInformation) -> AccessInformation:
-    """Create some new views of the collected information for reporting purposes."""
-    user_view = {}
-    account_view = {}
-    for user_name, user in access_information.users.items():
-        for account in access_information.accounts:
-            for assignment in account.assignments:
-                if assignment.members[0] == user:
-                    if user not in user_view:
-                        user_view[user] = {}
-                    if account not in user_view[user]:
-                        user_view[user][account] = []
-                    user_view[user][account].append(assignment.permission_set)
-                    user.num_permission_sets += 1
-
-                    if account not in account_view:
-                        account_view[account] = {}
-                    if user not in account_view[account]:
-                        account_view[account][user] = []
-                    account_view[account][user].append(assignment.permission_set)
-                    account.num_permission_sets += 1
-    access_information.views["user_view"] = user_view
-    access_information.views["account_view"] = account_view
-
-    return access_information
 
 
 def audit_access(sso_profile_name: str, debug=False):
