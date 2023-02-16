@@ -18,7 +18,7 @@ OUTPUT_NAME = "debug.bin"
 
 def generate_report(sso_profile_name: str, access_info: AccessInformation):
     env = jinja2.Environment(loader=jinja2.PackageLoader("access_audit"), autoescape=jinja2.select_autoescape(),
-                             undefined=jinja2.StrictUndefined)
+                             undefined=jinja2.StrictUndefined, extensions=["jinja2.ext.do"])
     template = env.get_template("report_template.html")
     report = template.render(sso_profile_name=sso_profile_name, access_info=access_info)
 
@@ -58,4 +58,4 @@ def audit_access(sso_profile_name: str, debug=False):
 
 
 if __name__ == "__main__":
-    audit_access("old-organisation", False)
+    audit_access("old-organisation", True)

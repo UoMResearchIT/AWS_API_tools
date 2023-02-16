@@ -200,18 +200,18 @@
                                                     {%- endif %}
                                                 </td>
                                                 <td>
-                                                    {% for policy in user.group_policies -%}
+                                                    {% for policy in user.policies if policy.attachment_type == "Group" -%}
                                                         <a class=link data-bs-toggle="collapse" role=button href="#collapse-{{ account.name }}-{{ policy.name }}">{{ policy.name }}</a>{% if not loop.last -%}<br>{%- endif %}
+                                                    {% else %}
+                                                        -
                                                     {%- endfor %}
                                                 </td>
                                                 <td>
-                                                    {% if user.attached_policies -%}
-                                                        {% for policy in user.attached_policies -%}
-                                                            <a class=link data-bs-toggle="collapse" role=button href="#collapse-{{ account.name }}-{{ policy.name }}">{{ policy.name }}</a>{% if not loop.last -%}<br>{%- endif %}
-                                                        {%- endfor %}
+                                                    {% for policy in user.policies if policy.attachment_type == "User" -%}
+                                                        <a class=link data-bs-toggle="collapse" role=button href="#collapse-{{ account.name }}-{{ policy.name }}">{{ policy.name }}</a>{% if not loop.last -%}<br>{%- endif %}
                                                     {% else -%}
                                                         -
-                                                    {%- endif %}
+                                                    {%- endfor %}
                                                 </td>
                                             </tr>
                                         {%- endfor %}
@@ -227,17 +227,23 @@
             <div class="position-fixed scroll">
                 Policy Details:
                 {% for account in access_info.accounts -%}
-                    {% for policy_name, policy in account["policies"].items() -%}
-                        <div class="collapse" data-bs-parent="#policy_details_column" id="collapse-{{ account.name }}-{{ policy.name }}">
-                            <div class="card card-body">
-                                <h5 class="card-title">Policy <span style="font-weight: bold">{{ policy.name }}</span> for account <span style="font-weight: bold">{{ account.name }}</span></h5>
-                                <div class="card-text">
-                                    AWS Managed: {{ policy.aws_managed }}<br>
-                                    Policy document: <br>
-                                    <pre>{{ policy.text | safe }}</pre>
+                    {% set policy_arns = [] %}
+                    {% for user in account.iam_users %}
+                        {% for policy in user.policies -%}
+                            {% if policy.arn not in policy_arns -%}
+                                <div class="collapse" data-bs-parent="#policy_details_column" id="collapse-{{ account.name }}-{{ policy.name }}">
+                                    <div class="card card-body">
+                                        <h5 class="card-title">Policy <span style="font-weight: bold">{{ policy.name }}</span> for account <span style="font-weight: bold">{{ account.name }}</span></h5>
+                                        <div class="card-text">
+                                            AWS Managed: {{ policy.aws_managed }}<br>
+                                            Policy document: <br>
+                                            <pre>{{ policy.text | safe }}</pre>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
-                        </div>
+                                {% do policy_arns.append(policy.arn) -%}
+                            {%- endif %}
+                        {%- endfor %}
                     {%- endfor %}
                 {%- endfor %}
             </div>

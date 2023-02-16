@@ -5,8 +5,10 @@ import boto3
 import botocore.client
 import botocore.errorfactory
 
+from policy import Policy
+
 if TYPE_CHECKING:
-    from access_audit.iam import Account
+    from iam import Account
 
 
 class NoAccessException(Exception):
@@ -17,19 +19,26 @@ class AccessInformation:
     def __init__(self, profile_name: str, accounts: list[Account]):
         self.profile_name: str = profile_name
         self.accounts: list[Account] = accounts
-        self.permission_sets: dict[str: PermissionSet] = {}
-        self.groups: dict[str: Group] = {}
-        self.users: dict[str: SSOUser] = {}
-        self.views: dict[str: dict] = {}
+        self.permission_sets: dict[str, PermissionSet] = {}
+        self.groups: dict[str, Group] = {}
+        self.users: dict[str, SSOUser] = {}
+        self.views: dict[str, dict] = {}
 
 
 class PermissionSet:
+    """A permission set is a group of policies applied to an identity that controls what the identity can do.
+
+    :ivar name: The friendly name of the permission set.
+    :ivar arn: The Amazon Resource Name of the permission set.
+    :ivar policies: A list of policies in the permission set.
+    :ivar inline_policy: An inline policy document applied to the permission set directly.
+    :ivar assignments: A set of assignments that maps which identities and accounts the permission set is attached to.
+    """
     def __init__(self, name: str, arn: str):
         self.name: str = name
         self.arn: str = arn
-        self.managed_policies = []
-        self.customer_policies = []
-        self.inline_policy = ""
+        self.policies: list[Policy] = []
+        self.inline_policy: str = ""
         self.assignments: list[Assignment] = []
 
     def __repr__(self):
@@ -40,6 +49,7 @@ class PermissionSet:
 
 
 class Assignment:
+    """An assignment is a mapping between a single permission set, a single account and a single member or group."""
     def __init__(self, permission_set: PermissionSet, account: Account):
         self.permission_set: PermissionSet = permission_set
         self.account: Account = account
@@ -47,6 +57,14 @@ class Assignment:
 
 
 class Group:
+    """A group is an identity which can contain one or more users. Permission sets can be applied to a group and
+    inherited by all group members.
+
+    :ivar name: The friendly name of the group.
+    :ivar id: The Amazon Resource Name of the group.
+    :ivar members: A list of group members.
+    :ivar assignments: A list of mappings between groups, accounts and permission sets.
+    """
     def __init__(self, name: str, group_id: str):
         self.name: str = name
         self.id: str = group_id
@@ -61,6 +79,14 @@ class Group:
 
 
 class SSOUser:
+    """An SSOUser represents a user identity within IAM Identity Center.
+
+    :ivar username: The username of the user.
+    :ivar name: The friendly name of the user.
+    :ivar id: The Amazon Resource Name of the user.
+    :ivar groups: Groups of which the user is a member.
+    :ivar assignments: A list of Assignment objects which map accounts and permission sets to the user.
+    :ivar num_permission_sets: The total number of permission sets assigned to the user."""
     def __init__(self, username: str, name: str, user_id: str):
         self.username: str = username
         self.name: str = name
@@ -81,20 +107,24 @@ def get_permission_set(instance_arn: str, set_arn: str, sso_client: Type[botocor
     set_name = sso_client.describe_permission_set(InstanceArn=instance_arn,
                                                   PermissionSetArn=set_arn)["PermissionSet"]["Name"]
     new_set = PermissionSet(set_name, set_arn)
+
+    policies = []
     # Get managed policies
     # noinspection PyArgumentList
     paginator = sso_client.get_paginator("list_managed_policies_in_permission_set")
     page_iterator = paginator.paginate(InstanceArn=instance_arn, PermissionSetArn=set_arn)
     for page in page_iterator:
-        new_set.managed_policies.extend(page["AttachedManagedPolicies"])
+        policies.extend(page["AttachedManagedPolicies"])
     # Get customer policies
     # noinspection PyArgumentList
     paginator = sso_client.get_paginator("list_customer_managed_policy_references_in_permission_set")
     page_iterator = paginator.paginate(InstanceArn=instance_arn, PermissionSetArn=set_arn)
     for page in page_iterator:
-        new_set.customer_policies.extend(page["CustomerManagedPolicyReferences"])
+        policies.extend(page["CustomerManagedPolicyReferences"])
     new_set.inline_policy = sso_client.get_inline_policy_for_permission_set(InstanceArn=instance_arn,
-                                                                            PermissionSetArn=set_arn)["InlinePolicy"]
+                                                                    PermissionSetArn=set_arn)["InlinePolicy"]
+    for policy in policies:
+        new_set.policies.append(Policy(policy["Arn"], "User"))
     return new_set
 
 
@@ -109,6 +139,12 @@ def audit_sso_access(session: boto3.session, accounts: list[Account]) -> AccessI
     identity_store_id, instance_arn = get_instance_info(region_name, sso_client)
 
     access_info.permission_sets = get_permission_sets(instance_arn, sso_client)
+
+    iam_client = session.client("iam", region_name=region_name)
+    for arn, permission_set in access_info.permission_sets.items():
+        for policy in permission_set.policies:
+            policy.get_policy_details(iam_client)
+
     print("Collected permission set info.")
     access_info.users = get_sso_users(identity_client, identity_store_id)
     print("Collected user info.")
@@ -159,7 +195,7 @@ def get_instance_info(region_name: str, sso_client: Type[botocore.client.BaseCli
     return identity_store_id, instance_arn
 
 
-def get_permission_sets(instance_arn: str, sso_client: Type[botocore.client.BaseClient]) -> dict[str: PermissionSet]:
+def get_permission_sets(instance_arn: str, sso_client: Type[botocore.client.BaseClient]) -> dict[str, PermissionSet]:
     """Given an identity store instance, get a list of the users."""
     permission_set_ids = []
     # noinspection PyArgumentList
@@ -182,7 +218,7 @@ def get_applied_permission_sets(sso_client: Type[botocore.client.BaseClient], in
     return account_permission_sets
 
 
-def get_sso_users(identity_client: Type[botocore.client.BaseClient], identity_store_id: str) -> dict[str: SSOUser]:
+def get_sso_users(identity_client: Type[botocore.client.BaseClient], identity_store_id: str) -> dict[str, SSOUser]:
     """Given an identity store, get a list of the users."""
     users = []
     # noinspection PyArgumentList
@@ -195,7 +231,7 @@ def get_sso_users(identity_client: Type[botocore.client.BaseClient], identity_st
 
 
 def get_sso_groups(identity_client: Type[botocore.client.BaseClient], identity_store_id: str,
-                   users: dict[SSOUser]) -> dict[str: Group]:
+                   users: dict[str, SSOUser]) -> dict[str, Group]:
     """Given an identity store and a region, get a list of the groups in that region."""
     groups = []
     # noinspection PyArgumentList
