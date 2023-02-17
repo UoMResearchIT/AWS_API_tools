@@ -24,150 +24,150 @@
     </div>
     <ul class="nav nav-tabs" id="myTabList" role="tablist">
         <li class="nav-item" role="presentation">
-            <button class="nav-link active" id="sso-tab" data-bs-toggle="tab" data-bs-target="#sso" type="button" role="tab">SSO</button>
+            <button class="nav-link active" id="sso-tab" data-bs-toggle="tab" data-bs-target="#sso" type="button" role="tab" onclick="collapsePolicies()">SSO</button>
         </li>
         <li class="nav-item" role="presentation">
-            <button class="nav-link" id="iam-tab" data-bs-toggle="tab" data-bs-target="#iam" type="button" role="tab">IAM</button>
+            <button class="nav-link" id="iam-tab" data-bs-toggle="tab" data-bs-target="#iam" type="button" role="tab" onclick="collapsePolicies()">IAM</button>
         </li>
     </ul>
-    <div class="tab-content" id="myTabContent">
-        <div class="tab-pane fade show active" id="sso" role="tabpanel">
-            <div class="accordion" id="sso_accordian">
-                <div class="accordion-item my-2">
-                    <h2 class="accordion-header" id="panelsStayOpen-heading-groups">
-                        <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#panelsStayOpen-collapse-groups">
-                            Group / Member
-                        </button>
-                    </h2>
-                    <div id="panelsStayOpen-collapse-groups" class="accordion-collapse collapse show">
-                        <div class="accordion-body">
-                            <table class="table">
-                                <thead>
-                                    <tr>
-                                        <th scope="col">Group Name</th>
-                                        <th scope="col">Members</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for group_name, group in access_info.groups.items() -%}
-                                        <tr>
-                                            <td>
-                                                {{ group.name }}
-                                            </td>
-                                            <td>
-                                                {% if group.members -%}
-                                                    {% for member in group.members -%}
-                                                        {{ member.name }}{% if not loop.last -%}<br>{%- endif -%}
-                                                    {%- endfor %}
-                                                {% else %}
-                                                    -
-                                                {%- endif %}
-                                            </td>
-                                        </tr>
-                                    {%- endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-                <div class="accordion-item my-2">
-                    <h2 class="accordion-header" id="panelsStayOpen-heading-users">
-                        <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#panelsStayOpen-collapse-users">
-                            User / Account / Permission Set
-                        </button>
-                    </h2>
-                    <div id="panelsStayOpen-collapse-users" class="accordion-collapse collapse show">
-                        <div class="accordion-body">
-                            <table class="table">
-                                <thead>
-                                    <tr>
-                                        <th scope="col">User</th>
-                                        <th scope="col">Account</th>
-                                        <th scope="col">Permission Set</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for user, accounts in access_info.views.user_view.items() -%}
-                                        {% set usr = namespace(printed=0) %}
-                                        {% for account, permissions in accounts.items() -%}
-                                            {%  for permission in permissions %}
-                                                <tr>
-                                                    {% if usr.printed == 0 -%}
-                                                        <td rowspan="{{ user.num_permission_sets }}">
-                                                            {{ user.username }} ({{ user.name }})
-                                                        </td>
-                                                        {% set usr.printed = 1 %}
-                                                    {% endif -%}
-                                                    {% if loop.first %}
-                                                        <td rowspan="{{ loop.length }}">
-                                                            {{ account.name }}
-                                                        </td>
-                                                    {% endif -%}
-                                                    <td>
-                                                        {{ permission.name }}
-                                                    </td>
-                                                </tr>
-                                            {%- endfor %}
-                                        {%- endfor %}
-                                    {%- endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-                <div class="accordion-item my-2">
-                    <h2 class="accordion-header" id="panelsStayOpen-heading-users">
-                        <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#panelsStayOpen-collapse-users">
-                            Account / User / Permission Set
-                        </button>
-                    </h2>
-                    <div id="panelsStayOpen-collapse-users" class="accordion-collapse collapse show">
-                        <div class="accordion-body">
-                            <table class="table">
-                                <thead>
-                                    <tr>
-                                        <th scope="col">Account</th>
-                                        <th scope="col">User</th>
-                                        <th scope="col">Permission Set</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {% for account, users in access_info.views.account_view.items() -%}
-                                        {% set acc = namespace(printed=0) %}
-                                        {% for user, permissions in users.items() -%}
-                                            {%  for permission in permissions %}
-                                                <tr>
-                                                    {% if acc.printed == 0 -%}
-                                                        <td rowspan="{{ account.num_permission_sets }}">
-                                                            {{ account.name }}
-                                                        </td>
-                                                        {% set acc.printed = 1 %}
-                                                    {% endif -%}
-                                                    {% if loop.first %}
-                                                        <td rowspan="{{ loop.length }}">
-                                                            {{ user.username }} ({{ user.name }})
-                                                        </td>
-                                                    {% endif -%}
-                                                    <td>
-                                                        {{ permission.name }}
-                                                    </td>
-                                                </tr>
-                                            {%- endfor %}
-                                        {%- endfor %}
-                                    {%- endfor %}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="tab-pane fade" id="iam" role="tabpanel">
-            <div class="row my-3">
+    <div class="row my-2">
         <div class="col-7">
-            <div class="accordion" id="account_accordian">
-                {% for account in access_info.accounts -%}
-                    <div class="accordion-item my-2">
+            <div class="tab-content" id="myTabContent">
+                <div class="tab-pane fade show active" id="sso" role="tabpanel">
+                    <div class="accordion" id="sso_accordian">
+                        <div class="accordion-item my-2">
+                            <h2 class="accordion-header" id="panelsStayOpen-heading-groups">
+                                <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#panelsStayOpen-collapse-groups">
+                                    Group / Member
+                                </button>
+                            </h2>
+                            <div id="panelsStayOpen-collapse-groups" class="accordion-collapse collapse show">
+                                <div class="accordion-body">
+                                    <table class="table">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">Group Name</th>
+                                                <th scope="col">Members</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for group_name, group in access_info.groups.items() -%}
+                                                <tr>
+                                                    <td>
+                                                        {{ group.name }}
+                                                    </td>
+                                                    <td>
+                                                        {% if group.members -%}
+                                                            {% for member in group.members -%}
+                                                                {{ member.name }}{% if not loop.last -%}<br>{%- endif -%}
+                                                            {%- endfor %}
+                                                        {% else %}
+                                                            -
+                                                        {%- endif %}
+                                                    </td>
+                                                </tr>
+                                            {%- endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item my-2">
+                            <h2 class="accordion-header" id="panelsStayOpen-heading-users">
+                                <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#panelsStayOpen-collapse-users">
+                                    User / Account / Permission Set
+                                </button>
+                            </h2>
+                            <div id="panelsStayOpen-collapse-users" class="accordion-collapse collapse show">
+                                <div class="accordion-body">
+                                    <table class="table">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">User</th>
+                                                <th scope="col">Account</th>
+                                                <th scope="col">Permission Set</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for user, accounts in access_info.views.user_view.items() -%}
+                                                {% set usr = namespace(printed=0) %}
+                                                {% for account, permissions in accounts.items() -%}
+                                                    {%  for permission in permissions %}
+                                                        <tr>
+                                                            {% if usr.printed == 0 -%}
+                                                                <td rowspan="{{ user.num_permission_sets }}">
+                                                                    {{ user.username }} ({{ user.name }})
+                                                                </td>
+                                                                {% set usr.printed = 1 %}
+                                                            {% endif -%}
+                                                            {% if loop.first %}
+                                                                <td rowspan="{{ loop.length }}">
+                                                                    {{ account.name }}
+                                                                </td>
+                                                            {% endif -%}
+                                                            <td>
+                                                                {{ permission.name }}
+                                                            </td>
+                                                        </tr>
+                                                    {%- endfor %}
+                                                {%- endfor %}
+                                            {%- endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="accordion-item my-2">
+                            <h2 class="accordion-header" id="panelsStayOpen-heading-users">
+                                <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#panelsStayOpen-collapse-users">
+                                    Account / User / Permission Set
+                                </button>
+                            </h2>
+                            <div id="panelsStayOpen-collapse-users" class="accordion-collapse collapse show">
+                                <div class="accordion-body">
+                                    <table class="table">
+                                        <thead>
+                                            <tr>
+                                                <th scope="col">Account</th>
+                                                <th scope="col">User</th>
+                                                <th scope="col">Permission Set</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for account, users in access_info.views.account_view.items() -%}
+                                                {% set acc = namespace(printed=0) %}
+                                                {% for user, permissions in users.items() -%}
+                                                    {%  for permission in permissions %}
+                                                        <tr>
+                                                            {% if acc.printed == 0 -%}
+                                                                <td rowspan="{{ account.num_permission_sets }}">
+                                                                    {{ account.name }}
+                                                                </td>
+                                                                {% set acc.printed = 1 %}
+                                                            {% endif -%}
+                                                            {% if loop.first %}
+                                                                <td rowspan="{{ loop.length }}">
+                                                                    {{ user.username }} ({{ user.name }})
+                                                                </td>
+                                                            {% endif -%}
+                                                            <td>
+                                                                {{ permission.name }}
+                                                            </td>
+                                                        </tr>
+                                                    {%- endfor %}
+                                                {%- endfor %}
+                                            {%- endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="tab-pane fade" id="iam" role="tabpanel">
+                    <div class="accordion" id="account_accordian">
+                        {% for account in access_info.accounts -%}
+                        <div class="accordion-item my-2">
                         <h2 class="accordion-header" id="panelsStayOpen-heading{{ account.name }}">
                             <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#panelsStayOpen-collapse{{ account.name }}">
                                 {{account.name}}
@@ -220,7 +220,9 @@
                             </div>
                         </div>
                     </div>
-                {%- endfor %}
+                        {%- endfor %}
+                    </div>
+                </div>
             </div>
         </div>
         <div class="col-5" id="policy_details_column">
@@ -231,7 +233,7 @@
                     {% for user in account.iam_users %}
                         {% for policy in user.policies -%}
                             {% if policy.arn not in policy_arns -%}
-                                <div class="collapse" data-bs-parent="#policy_details_column" id="collapse-{{ account.name }}-{{ policy.name }}">
+                                <div class="collapse policy" data-bs-parent="#policy_details_column" id="collapse-{{ account.name }}-{{ policy.name }}">
                                     <div class="card card-body">
                                         <h5 class="card-title">Policy <span style="font-weight: bold">{{ policy.name }}</span> for account <span style="font-weight: bold">{{ account.name }}</span></h5>
                                         <div class="card-text">
@@ -249,10 +251,13 @@
             </div>
         </div>
     </div>
-        </div>
-    </div>
 </div>
 </body>
+<script>
+    function collapsePolicies() {
+        document.querySelectorAll('.policy').forEach(element => element.classList.remove("show"))
+    }
+</script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js" integrity="sha384-MrcW6ZMFYlzcLA8Nl+NtUVF0sA7MsXsP1UyJoMp4YLEuNSfAP+JcXn/tWtIaxVXM" crossorigin="anonymous"></script>
 </html>
 
