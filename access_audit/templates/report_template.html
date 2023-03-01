@@ -36,46 +36,9 @@
                 <div class="tab-pane fade show active" id="sso" role="tabpanel">
                     <div class="accordion" id="sso_accordian">
                         <div class="accordion-item my-2">
-                            <h2 class="accordion-header" id="panelsStayOpen-heading-groups">
-                                <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#panelsStayOpen-collapse-groups">
-                                    Group / Member
-                                </button>
-                            </h2>
-                            <div id="panelsStayOpen-collapse-groups" class="accordion-collapse collapse show">
-                                <div class="accordion-body">
-                                    <table class="table">
-                                        <thead>
-                                            <tr>
-                                                <th scope="col">Group Name</th>
-                                                <th scope="col">Members</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {% for group_name, group in access_info.groups.items() -%}
-                                                <tr>
-                                                    <td>
-                                                        {{ group.name }}
-                                                    </td>
-                                                    <td>
-                                                        {% if group.members -%}
-                                                            {% for member in group.members -%}
-                                                                {{ member.name }}{% if not loop.last -%}<br>{%- endif -%}
-                                                            {%- endfor %}
-                                                        {% else %}
-                                                            -
-                                                        {%- endif %}
-                                                    </td>
-                                                </tr>
-                                            {%- endfor %}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="accordion-item my-2">
                             <h2 class="accordion-header" id="panelsStayOpen-heading-users">
                                 <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#panelsStayOpen-collapse-users">
-                                    User / Account / Permission Set
+                                    User or Group / Account / Permission Set
                                 </button>
                             </h2>
                             <div id="panelsStayOpen-collapse-users" class="accordion-collapse collapse show">
@@ -83,22 +46,26 @@
                                     <table class="table">
                                         <thead>
                                             <tr>
-                                                <th scope="col">User</th>
+                                                <th scope="col">User or Group</th>
                                                 <th scope="col">Account</th>
                                                 <th scope="col">Permission Set</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {% for user, accounts in access_info.views.user_view.items() -%}
-                                                {% set usr = namespace(printed=0) %}
+                                            {% for identity, accounts in access_info.views.identity_view.items() -%}
+                                                {% set id = namespace(printed=0) %}
                                                 {% for account, permissions in accounts.items() -%}
                                                     {%  for permission in permissions %}
                                                         <tr>
-                                                            {% if usr.printed == 0 -%}
-                                                                <td rowspan="{{ user.num_permission_sets }}">
-                                                                    {{ user.username }} ({{ user.name }})
+                                                            {% if id.printed == 0 -%}
+                                                                <td rowspan="{{ identity.num_permission_sets }}">
+                                                                    {%  if identity.type() == "User" %}
+                                                                        {{ identity.name }} ({{ identity.username }})
+                                                                    {% else %}
+                                                                        <a class=link data-bs-toggle="collapse" role=button href="#collapse-group-{{ identity.name }}">{{ identity.name }}</a>
+                                                                    {% endif %}
                                                                 </td>
-                                                                {% set usr.printed = 1 %}
+                                                                {% set id.printed = 1 %}
                                                             {% endif -%}
                                                             {% if loop.first %}
                                                                 <td rowspan="{{ loop.length }}">
@@ -120,7 +87,7 @@
                         <div class="accordion-item my-2">
                             <h2 class="accordion-header" id="panelsStayOpen-heading-users">
                                 <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#panelsStayOpen-collapse-users">
-                                    Account / User / Permission Set
+                                    Account / User or Group / Permission Set
                                 </button>
                             </h2>
                             <div id="panelsStayOpen-collapse-users" class="accordion-collapse collapse show">
@@ -129,14 +96,14 @@
                                         <thead>
                                             <tr>
                                                 <th scope="col">Account</th>
-                                                <th scope="col">User</th>
+                                                <th scope="col">User or Group</th>
                                                 <th scope="col">Permission Set</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {% for account, users in access_info.views.account_view.items() -%}
+                                            {% for account, identities in access_info.views.account_view.items() -%}
                                                 {% set acc = namespace(printed=0) %}
-                                                {% for user, permissions in users.items() -%}
+                                                {% for identity, permissions in identities.items() -%}
                                                     {%  for permission in permissions %}
                                                         <tr>
                                                             {% if acc.printed == 0 -%}
@@ -147,7 +114,11 @@
                                                             {% endif -%}
                                                             {% if loop.first %}
                                                                 <td rowspan="{{ loop.length }}">
-                                                                    {{ user.username }} ({{ user.name }})
+                                                                    {%  if identity.type() == "User" %}
+                                                                        {{ identity.name }} ({{ identity.username }})
+                                                                    {% else %}
+                                                                        <a class=link data-bs-toggle="collapse" role=button href="#collapse-group-{{ identity.name }}">{{ identity.name }}</a>
+                                                                    {% endif %}
                                                                 </td>
                                                             {% endif -%}
                                                             <td>
@@ -227,6 +198,7 @@
         </div>
         <div class="col-5" id="policy_details_column">
             <div class="position-fixed scroll">
+
                 <div id="permission_sets">
                     {% for permission_set_arn, permission_set in access_info.permission_sets.items() -%}
                         <div class="collapse permission-set" data-bs-parent="#permission_sets" id="collapse-permission-set-{{ permission_set.name }}">
@@ -242,6 +214,27 @@
                             </div>
                         </div>
                     {%- endfor %}
+                </div>
+
+                <div id=groups>
+                    {% for name, group in access_info.groups.items() %}
+                        <div class="collapse group" data-bs-parent="#groups" id="collapse-group-{{ group.name }}">
+                            Group details:
+                            <div class="card card-body">
+                                <h5 class="card-title">Group <span style="font-weight: bold">{{ group.name }}</span></h5>
+                                <div class="card-text">
+                                    Group members:<br>
+                                    {% if group.members -%}
+                                        {% for member in group.members -%}
+                                            {{ member.name }}{% if not loop.last -%}<br>{%- endif -%}
+                                        {%- endfor %}
+                                    {% else %}
+                                        -
+                                    {%- endif %}
+                                </div>
+                            </div>
+                        </div>
+                    {% endfor %}
                 </div>
 
                 <div id="permission_set_policies">

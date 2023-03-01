@@ -56,50 +56,61 @@ class Assignment:
         self.members: list[SSOUser | Group] = []
 
 
-class Group:
+class Identity:
+    """An identity is something that can be assigned permission sets. This is either a user or group.
+
+    :ivar arn: The Amazon resource name of the identity.
+    :ivar name: The friendly name of the identity.
+    :ivar assignments: A list of Assignment objects which map accounts and permission sets to the identity.
+    :ivar num_permission_sets: The total number of permission sets assigned to the identity.
+    """
+    def __init__(self, arn: str, name: str):
+        self.arn: str = arn
+        self.name: str = name
+        self.assignments: list[Assignment] = []
+        self.num_permission_sets: int = 0
+
+    def __hash__(self):
+        return hash(self.arn)
+
+    def type(self) -> str:
+        """Hack so that jinja can distinguish between child types."""
+        if type(self) == Group:
+            return "Group"
+        elif type(self) == SSOUser:
+            return "User"
+
+
+class Group(Identity):
     """A group is an identity which can contain one or more users. Permission sets can be applied to a group and
     inherited by all group members.
 
     :ivar name: The friendly name of the group.
-    :ivar id: The Amazon Resource Name of the group.
+    :ivar arn: The Amazon Resource Name of the group.
     :ivar members: A list of group members.
-    :ivar assignments: A list of mappings between groups, accounts and permission sets.
     """
-    def __init__(self, name: str, group_id: str):
-        self.name: str = name
-        self.id: str = group_id
+    def __init__(self, arn: str, name: str):
+        super().__init__(arn, name)
         self.members: list[SSOUser] = []
-        self.assignments: list[Assignment] = []
 
     def __repr__(self):
         return f"Group: {self.name}"
 
-    def __hash__(self):
-        return hash(self.id)
 
-
-class SSOUser:
+class SSOUser(Identity):
     """An SSOUser represents a user identity within IAM Identity Center.
 
     :ivar username: The username of the user.
-    :ivar name: The friendly name of the user.
-    :ivar id: The Amazon Resource Name of the user.
     :ivar groups: Groups of which the user is a member.
-    :ivar assignments: A list of Assignment objects which map accounts and permission sets to the user.
-    :ivar num_permission_sets: The total number of permission sets assigned to the user."""
-    def __init__(self, username: str, name: str, user_id: str):
+    """
+    def __init__(self, arn: str, username: str, name: str):
+        super().__init__(arn, name)
         self.username: str = username
-        self.name: str = name
-        self.id: str = user_id
         self.groups: list[Group] = []
-        self.assignments: list[Assignment] = []
-        self.num_permission_sets: int = 0
 
     def __repr__(self):
         return f"SSOUser: {self.name}"
 
-    def __hash__(self):
-        return hash(self.id)
 
 
 def get_permission_set(instance_arn: str, set_arn: str, sso_client: Type[botocore.client.BaseClient]) -> PermissionSet:
@@ -166,8 +177,7 @@ def get_assignments(instance_arn: str, sso_client: Type[botocore.client.BaseClie
 
         for permission_set_arn in account_sets:
             account_assignments = sso_client.list_account_assignments(InstanceArn=instance_arn, AccountId=account.id,
-                                                                      PermissionSetArn=permission_set_arn)[
-                "AccountAssignments"]
+                                                                      PermissionSetArn=permission_set_arn)["AccountAssignments"]
             new_assignment = Assignment(access_info.permission_sets[permission_set_arn], account)
             for assignment in account_assignments:
                 principal_id = assignment["PrincipalId"]
@@ -176,7 +186,7 @@ def get_assignments(instance_arn: str, sso_client: Type[botocore.client.BaseClie
                     access_info.groups[principal_id].assignments.append(new_assignment)
                 elif assignment["PrincipalType"] == "USER":
                     if principal_id not in access_info.users:
-                        access_info.users[principal_id] = (SSOUser("Unknown", "Unknown", principal_id))
+                        access_info.users[principal_id] = (SSOUser(principal_id, "Unknown", "Unknown"))
                     new_assignment.members.append(access_info.users[principal_id])
                     access_info.users[principal_id].assignments.append(new_assignment)
 
@@ -226,7 +236,7 @@ def get_sso_users(identity_client: Type[botocore.client.BaseClient], identity_st
     page_iterator = paginator.paginate(IdentityStoreId=identity_store_id)
     for page in page_iterator:
         users.extend(page["Users"])
-    users = {user["UserId"]: SSOUser(user["UserName"], user["DisplayName"], user["UserId"]) for user in users}
+    users = {user["UserId"]: SSOUser(user["UserId"], user["UserName"], user["DisplayName"]) for user in users}
     return users
 
 
@@ -239,7 +249,7 @@ def get_sso_groups(identity_client: Type[botocore.client.BaseClient], identity_s
     page_iterator = paginator.paginate(IdentityStoreId=identity_store_id)
     for page in page_iterator:
         groups.extend(page["Groups"])
-    groups = {group["GroupId"]: Group(group["DisplayName"], group["GroupId"]) for group in groups}
+    groups = {group["GroupId"]: Group(group["GroupId"], group["DisplayName"]) for group in groups}
 
     for group_id, group in groups.items():
         memberships = []
@@ -257,26 +267,26 @@ def get_sso_groups(identity_client: Type[botocore.client.BaseClient], identity_s
 
 def sort_report_data(access_information: AccessInformation) -> AccessInformation:
     """Create some new views of the collected information for reporting purposes."""
-    user_view = {}
+    identity_view = {}
     account_view = {}
-    for user_name, user in access_information.users.items():
-        for account in access_information.accounts:
-            for assignment in account.assignments:
-                if assignment.members[0] == user:
-                    if user not in user_view:
-                        user_view[user] = {}
-                    if account not in user_view[user]:
-                        user_view[user][account] = []
-                    user_view[user][account].append(assignment.permission_set)
-                    user.num_permission_sets += 1
+    # for user_name, user in access_information.users.items():
+    for account in access_information.accounts:
+        for assignment in account.assignments:
+            identity = assignment.members[0]
+            if identity not in identity_view:
+                identity_view[identity] = {}
+            if account not in identity_view[identity]:
+                identity_view[identity][account] = []
+            identity_view[identity][account].append(assignment.permission_set)
+            identity.num_permission_sets += 1
 
-                    if account not in account_view:
-                        account_view[account] = {}
-                    if user not in account_view[account]:
-                        account_view[account][user] = []
-                    account_view[account][user].append(assignment.permission_set)
-                    account.num_permission_sets += 1
-    access_information.views["user_view"] = user_view
+            if account not in account_view:
+                account_view[account] = {}
+            if identity not in account_view[account]:
+                account_view[account][identity] = []
+            account_view[account][identity].append(assignment.permission_set)
+            account.num_permission_sets += 1
+    access_information.views["identity_view"] = identity_view
     access_information.views["account_view"] = account_view
 
     return access_information
