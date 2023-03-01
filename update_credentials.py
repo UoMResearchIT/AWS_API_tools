@@ -20,7 +20,7 @@ def add_accounts_to_profile(accounts: list[dict], config: configparser.ConfigPar
         account_name = account['Name']
         if " " in account_name:
             account_name = f"'{account_name}'"
-        section_name = f"profile {account_name}"
+        section_name = f"profile {sso_profile_name}-{account_name}"
         config.add_section(section_name)
         config[section_name]["sso_session"] = f"{sso_profile_name}-sso"
         config[section_name]["sso_account_id"] = account["Id"]
@@ -31,7 +31,7 @@ def add_accounts_to_profile(accounts: list[dict], config: configparser.ConfigPar
 def remove_accounts_from_profile(config: configparser.ConfigParser, sso_profile_name: str) -> configparser.ConfigParser:
     """Remove any previous profiles in the config that are associated with the sso_session."""
     for section in config.sections():
-        if section.startswith("profile") and not section.endswith(f"{sso_profile_name}"):
+        if section.startswith(f"profile-{sso_profile_name}") and section != f"profile-{sso_profile_name}":
             if config[section]["sso_session"] == config[f"profile {sso_profile_name}"]["sso_session"]:
                 config.remove_section(section)
     return config

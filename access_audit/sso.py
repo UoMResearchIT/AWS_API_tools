@@ -112,6 +112,8 @@ class SSOUser(Identity):
         return f"SSOUser: {self.name}"
 
 
+NONE_USER = SSOUser("None", "None", "None")
+
 
 def get_permission_set(instance_arn: str, set_arn: str, sso_client: Type[botocore.client.BaseClient]) -> PermissionSet:
     """Given the ARN of a permission set, get details of the policies in that permission set."""
@@ -173,6 +175,8 @@ def get_assignments(instance_arn: str, sso_client: Type[botocore.client.BaseClie
     User, PermissionSet and Account objects and so does not return a list of the Assignments.
     """
     for account in access_info.accounts:
+        if account.access_error:
+            continue
         account_sets = get_applied_permission_sets(sso_client, instance_arn, account.id)
 
         for permission_set_arn in account_sets:
@@ -269,10 +273,13 @@ def sort_report_data(access_information: AccessInformation) -> AccessInformation
     """Create some new views of the collected information for reporting purposes."""
     identity_view = {}
     account_view = {}
-    # for user_name, user in access_information.users.items():
     for account in access_information.accounts:
         for assignment in account.assignments:
-            identity = assignment.members[0]
+            # It is possible that a permission set is associated with an account but not an identity
+            if assignment.members:
+                identity = assignment.members[0]
+            else:
+                identity = NONE_USER
             if identity not in identity_view:
                 identity_view[identity] = {}
             if account not in identity_view[identity]:

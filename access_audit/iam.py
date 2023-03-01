@@ -5,11 +5,11 @@ import boto3
 import botocore.client
 import botocore.exceptions
 
-
 from policy import get_group_policies, Policy
 
 if TYPE_CHECKING:
     from sso import Group, Assignment
+    from config import Profile
 
 
 class NoAccessException(Exception):
@@ -41,15 +41,20 @@ class Account:
     :ivar iam_users: A list of `IAMUser`s within the account.
     :ivar assignments: A list of `assignments` which list which identities policies are applied to.
     :ivar num_permission_sets: A count of the total number of SSO permission sets in the account.
+    :ivar access_error: True if it is not possible to read account details.
     """
-    def __init__(self, name: str, account_id: str, account_details: dict):
+    def __init__(self, name: str, account_id: str, account_details: Optional[dict]):
         self.name: str = name
         self.id: str = account_id
         self.iam_users: list[IAMUser] = []
         self.assignments: list[Assignment] = []
         self.num_permission_sets: int = 0
+        self.access_error = False
 
-        self.iam_users = [(IAMUser(username, account_details)) for username in account_details["Users"]]
+        if account_details:
+            self.iam_users = [(IAMUser(username, account_details)) for username in account_details["Users"]]
+        else:
+            self.access_error = True
 
 
 def get_account_details(iam_client: Type[botocore.client.BaseClient]) -> dict[str, dict]:
@@ -71,15 +76,18 @@ def get_account_details(iam_client: Type[botocore.client.BaseClient]) -> dict[st
     return details
 
 
-def audit_account_iam(sso_session: boto3.Session) -> Optional[Account]:
+def audit_account_iam(profile: Profile) -> Optional[Account]:
     """Get information about IAM identities for a single AWS account."""
-    iam_client = sso_session.client('iam')
+
+    # IAM is global so don't need to specify region.
+    session = boto3.Session(profile_name=profile.profile_name)
+    iam_client = session.client('iam')
     try:
         account_details = get_account_details(iam_client)
     except NoAccessException:
-        return None
-    account_id = sso_session.client('sts').get_caller_identity()["Account"]
-    new_account = Account(sso_session.profile_name, account_id, account_details)
+        account_details = None
+
+    new_account = Account(profile.friendly_name, profile.account_id, account_details)
 
     for user in new_account.iam_users:
         for policy in user.policies:

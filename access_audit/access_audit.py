@@ -8,7 +8,7 @@ import tqdm
 
 from iam import audit_account_iam
 from sso import audit_sso_access, sort_report_data
-from config import get_profiles_in_sso
+from config import get_profiles_in_sso, populate_profiles
 
 if TYPE_CHECKING:
     from sso import AccessInformation
@@ -40,13 +40,13 @@ def audit_access(sso_profile_name: str, debug=False):
     """Loop through all the accounts in a single SSO profile, getting user and access information for each one."""
     if not debug:
         profile_names = get_profiles_in_sso(sso_profile_name)
+        profiles = populate_profiles(profile_names)
         accounts = []
-        for account_name in tqdm.tqdm(profile_names[0:3]):
-            # IAM is global so don't need to specify region.
-            session = boto3.Session(profile_name=account_name)
-            account = audit_account_iam(session)
+        print("Getting IAM details from accounts.")
+        for profile in tqdm.tqdm(profiles):
+            account = audit_account_iam(profile)
             accounts.append(account)
-        print("Completed iam analysis.")
+        print("Completed IAM analysis.")
 
         session = boto3.Session(profile_name=sso_profile_name)
         account_info = audit_sso_access(session, accounts)
