@@ -180,10 +180,16 @@ def get_assignments(instance_arn: str, sso_client: Type[botocore.client.BaseClie
         account_sets = get_applied_permission_sets(sso_client, instance_arn, account.id)
 
         for permission_set_arn in account_sets:
-            account_assignments = sso_client.list_account_assignments(InstanceArn=instance_arn, AccountId=account.id,
-                                                                      PermissionSetArn=permission_set_arn)["AccountAssignments"]
-            new_assignment = Assignment(access_info.permission_sets[permission_set_arn], account)
+            account_assignments = []
+            # noinspection PyArgumentList
+            paginator = sso_client.get_paginator("list_account_assignments")
+            page_iterator = paginator.paginate(InstanceArn=instance_arn, AccountId=account.id,
+                                               PermissionSetArn=permission_set_arn)
+            for page in page_iterator:
+                account_assignments.extend(page["AccountAssignments"])
+
             for assignment in account_assignments:
+                new_assignment = Assignment(access_info.permission_sets[permission_set_arn], account)
                 principal_id = assignment["PrincipalId"]
                 if assignment["PrincipalType"] == "GROUP":
                     new_assignment.members.append(access_info.groups[principal_id])
@@ -194,8 +200,8 @@ def get_assignments(instance_arn: str, sso_client: Type[botocore.client.BaseClie
                     new_assignment.members.append(access_info.users[principal_id])
                     access_info.users[principal_id].assignments.append(new_assignment)
 
-            access_info.permission_sets[permission_set_arn].assignments.append(new_assignment)
-            account.assignments.append(new_assignment)
+                access_info.permission_sets[permission_set_arn].assignments.append(new_assignment)
+                account.assignments.append(new_assignment)
 
 
 def get_instance_info(region_name: str, sso_client: Type[botocore.client.BaseClient]):
